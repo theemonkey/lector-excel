@@ -48,7 +48,53 @@
                             <th>Referencia</th>
                             <th>Destinatario</th>
                             <th>Dirección</th>
-                            <th>Último Estado</th>
+                            <th>
+                                <div class="dropdown">
+                                    <button class="btn btn-sm btn-outline-light dropdown-toggle border-0 text-white fw-bold" type="button"
+                                            id="estadoFilterDropdown" data-bs-toggle="dropdown" aria-expanded="false"
+                                            style="background: transparent; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                                        <span id="filterLabelText">ULTIMO ESTADO</span>
+                                    </button>
+                                    <div class="dropdown-menu p-3" aria-labelledby="estadoFilterDropdown" style="min-width: 200px;">
+                                        <h6 class="dropdown-header">
+                                            <i class="fas fa-filter me-1"></i>FILTRAR POR ESTADO
+                                        </h6>
+                                        <div class="form-check">
+                                            <input class="form-check-input estado-filter" type="checkbox" value="pendiente" id="filter-pendiente">
+                                            <label class="form-check-label" for="filter-pendiente">
+                                                <span class="status">Pendiente</span>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input estado-filter" type="checkbox" value="en proceso" id="filter-en-proceso">
+                                            <label class="form-check-label" for="filter-en-proceso">
+                                                <span class="status">En Proceso</span>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input estado-filter" type="checkbox" value="terminado" id="filter-terminado">
+                                            <label class="form-check-label" for="filter-terminado">
+                                                <span class="status">Terminado</span>
+                                            </label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input estado-filter" type="checkbox" value="error" id="filter-error">
+                                            <label class="form-check-label" for="filter-error">
+                                                <span class="status">Error</span>
+                                            </label>
+                                        </div>
+                                        <hr class="dropdown-divider">
+                                        <div class="d-flex gap-2">
+                                            <button type="button" class="btn btn-sm btn-primary flex-fill" id="selectAllEstados">
+                                                <i class="fas fa-check-double me-1"></i>Todos
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill" id="clearEstadoFilter">
+                                                <i class="fas fa-times me-1"></i>Limpiar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </th>
                             <th>Fecha Consulta</th>
                             <th>Acciones</th>
                         </tr>

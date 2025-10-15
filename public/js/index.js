@@ -7,6 +7,7 @@ $(document).ready(function () {
             "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json" // Traducción al español
         },
         "responsive": true,
+        "ordering": false,   // Ordenamiento desactivado
         "columns": [
             { "data": "idGuia" },
             { "data": "referencia" },
@@ -78,7 +79,7 @@ $(document).ready(function () {
 
         return true;
     }
-
+    /* ====================FUNCIONES DE PROCESAMIENTO DE ARCHIVO EXCEL ===================================== */
     function processExcelFile(file) {
         const loadingUpload = $('#loadingUpload');
         const uploadStatus = $('#uploadStatus');
@@ -119,6 +120,7 @@ $(document).ready(function () {
                 }
 
                 guidesDataTable.rows.add(processedData).draw();
+                resetFilters();     // Resetear filtros cuando se cargan nuevos datos
                 updateSyncButton(processedData, syncAllBtn);
                 showSuccess(uploadStatus, `Archivo procesado exitosamente. Se cargaron ${processedData.length} guías.`);
 
@@ -149,7 +151,7 @@ $(document).ready(function () {
                 destinatario: row[2] || 'N/A', // Columna C
                 direccion: row[3] || 'N/A', // Columna D
                 estado: row[4] || 'Pendiente', // Columna E (estado inicial del excel)
-                fechaConsulta: row[5] ? moment(row[5]).format('DD-MM-YYYY HH:mm') : 'Nunca', // Columna F
+                fechaConsulta: row[5] ? moment(row[5], 'DD/MM/YYYY HH:mm').format('DD-MM-YYYY HH:mm') : 'Nunca', // Columna F
             }));
     }
 
@@ -284,7 +286,7 @@ $(document).ready(function () {
     // Función para mostrar notificaciones luego de la sincronizacion(masiva-individual)
     function showNotification(message, type = 'info') {
         console.log(`Notificación (${type}): ${message}`);
-        
+
         // Mapear tipos a clases de Bootstrap
         const typeClassMap = {
             'info': 'alert-info',
@@ -308,4 +310,129 @@ $(document).ready(function () {
             notification.fadeOut(500, () => notification.remove());
         }, 3000);
     }
+
+    /* =================================================================================================== */
+    // DROPDOWN FILTRO DE ESTADOS
+    /* =================================================================================================== */
+
+    // Variables para el filtro
+    let activeFilters = [];
+
+    // Inicializar eventos del dropdown
+    function initializeDropdownFilter() {
+        // Manejar cambios en los checkboxes
+        $('.estado-filter').on('change', function () {
+            updateActiveFilters();
+            applyEstadoFilter();
+            updateFilterLabel();
+        });
+
+        // Botón "Seleccionar Todos"
+        $('#selectAllEstados').on('click', function () {
+            $('.estado-filter').prop('checked', true);
+            updateActiveFilters();
+            applyEstadoFilter();
+            updateFilterLabel();
+        });
+
+        // Botón "Limpiar Filtros"
+        $('#clearEstadoFilter').on('click', function () {
+            $('.estado-filter').prop('checked', false);
+            activeFilters = [];
+            applyEstadoFilter();
+            updateFilterLabel();
+        });
+
+        // Prevenir que el dropdown se cierre al hacer click en los checkboxes
+        $('.dropdown-menu').on('click', function (e) {
+            e.stopPropagation();
+        });
+    }
+
+    // Actualizar array de filtros activos
+    function updateActiveFilters() {
+        activeFilters = [];
+        $('.estado-filter:checked').each(function () {
+            activeFilters.push($(this).val().toLowerCase());
+        });
+    }
+
+    // Aplicar filtro a la DataTable
+    function applyEstadoFilter() {
+        if (activeFilters.length === 0) {
+            // Si no hay filtros, mostrar todas las filas
+            guidesDataTable.column(4).search('').draw();
+        } else {
+            // Crear expresión regular para el filtro
+            const filterRegex = activeFilters.join('|');
+            guidesDataTable.column(4).search(filterRegex, true, false).draw();
+        }
+
+        // Actualizar contador de resultados
+        updateResultCounter();
+    }
+
+    // Actualizar el texto del label del filtro
+    function updateFilterLabel() {
+        const totalFilters = $('.estado-filter').length;
+        const checkedFilters = $('.estado-filter:checked').length;
+        const filterLabelText = $('#filterLabelText');
+
+        if (checkedFilters === 0) {
+            filterLabelText.text('ULTIMO ESTADO');
+            $('#estadoFilterDropdown').removeClass('btn-warning').addClass('btn-outline-light');
+        } else if (checkedFilters === totalFilters) {
+            filterLabelText.text('ULTIMO ESTADO (TODOS)');
+            $('#estadoFilterDropdown').removeClass('btn-warning').addClass('btn-outline-light');
+        } else {
+            filterLabelText.text(`ULTIMO ESTADO (${checkedFilters})`);
+            $('#estadoFilterDropdown').removeClass('btn-outline-light').addClass('btn-warning');
+        }
+    }
+
+    // Actualizar contador de resultados (opcional)
+    function updateResultCounter() {
+        const info = guidesDataTable.page.info();
+        if (info.recordsDisplay !== info.recordsTotal) {
+            console.log(`Mostrando ${info.recordsDisplay} de ${info.recordsTotal} guías`);
+        }
+    }
+
+    // Función para resetear filtros cuando se carga nueva data
+    function resetFilters() {
+        $('.estado-filter').prop('checked', false);
+        activeFilters = [];
+        updateFilterLabel();
+    }
+
+    // Función personalizada de filtro para DataTables
+    $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
+        // Solo aplicar este filtro a nuestra tabla específica
+        if (settings.nTable.id !== 'guidesTable') {
+            return true;
+        }
+
+        // Si no hay filtros activos, mostrar todo
+        if (activeFilters.length === 0) {
+            return true;
+        }
+
+        // Obtener el estado de la fila (columna 4, índice 4)
+        const estadoCell = data[4] || '';
+
+        // Extraer solo el texto del estado (sin HTML)
+        const tempDiv = $('<div>').html(estadoCell);
+        const estadoTexto = tempDiv.text().toLowerCase().trim();
+
+        // Verificar si el estado está en los filtros activos
+        return activeFilters.includes(estadoTexto);
+    });
+
+    // Inicializar el dropdown cuando la página esté lista
+    $(document).ready(function () {
+        // Inicializar después de que DataTable esté listo
+        setTimeout(function () {
+            initializeDropdownFilter();
+        }, 500);
+    });
 });
