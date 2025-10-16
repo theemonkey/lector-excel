@@ -9,9 +9,10 @@ $(document).ready(function () {
         "responsive": true,
         "ordering": false,   // Ordenamiento desactivado
         "columns": [
-            { "data": "idGuia" },
+            { "data": "numeroGuia" },
             { "data": "referencia" },
             { "data": "destinatario" },
+            { "data": "ciudad" },
             { "data": "direccion" },
             {
                 "data": "estado", "render": function (data, type, row) {
@@ -142,16 +143,17 @@ $(document).ready(function () {
 
     function processExcelData(json) {
         const rawData = json.slice(1); // Datos sin encabezado
-
+        // # de celdas segun el archivo excel a subir (7 columnas: A-G)
         return rawData
             .filter(row => row && row.length > 0 && row[0]) // Filtrar filas vacías
             .map(row => ({
-                idGuia: row[0] || 'N/A', // Columna A
+                numeroGuia: row[0] || 'N/A', // Columna A
                 referencia: row[1] || 'N/A', // Columna B
                 destinatario: row[2] || 'N/A', // Columna C
-                direccion: row[3] || 'N/A', // Columna D
-                estado: row[4] || 'Pendiente', // Columna E (estado inicial del excel)
-                fechaConsulta: row[5] ? moment(row[5], 'DD/MM/YYYY HH:mm').format('DD-MM-YYYY HH:mm') : 'Nunca', // Columna F
+                ciudad: row[3] || 'N/A', // Columna D
+                direccion: row[4] || 'N/A', // Columna E
+                estado: row[5] || 'Pendiente', // Columna F (estado inicial del excel)
+                fechaConsulta: row[6] ? moment(row[6], 'DD/MM/YYYY HH:mm').format('DD-MM-YYYY HH:mm') : 'Nunca', // Columna G
             }));
     }
 
@@ -197,11 +199,11 @@ $(document).ready(function () {
 
         button.prop('disabled', true).addClass('loading');
 
-        simulateSync(rowData.idGuia).then(newStatus => {
+        simulateSync(rowData.numeroGuia).then(newStatus => {
             rowData.estado = newStatus;
             rowData.fechaConsulta = moment().format('DD-MM-YYYY HH:mm');
             guidesDataTable.row(button.parents('tr')).data(rowData).invalidate().draw(false);
-            showNotification(`Guía ${rowData.idGuia} sincronizada. Nuevo estado: ${newStatus}`, 'success');
+            showNotification(`Guía ${rowData.numeroGuia} sincronizada. Nuevo estado: ${newStatus}`, 'success');
 
             if (newStatus.toLowerCase() === 'terminado' || newStatus.toLowerCase() === 'error') {
                 button.prop('disabled', true).attr('title', 'Guía terminada o con error, no se puede sincronizar.');
@@ -209,8 +211,8 @@ $(document).ready(function () {
                 button.prop('disabled', false);
             }
         }).catch(error => {
-            console.error("Error sincronizando guía:", rowData.idGuia, error);
-            showNotification(`Error al sincronizar guía ${rowData.idGuia}.`, 'error');
+            console.error("Error sincronizando guía:", rowData.numeroGuia, error);
+            showNotification(`Error al sincronizar guía ${rowData.numeroGuia}.`, 'error');
         }).finally(() => {
             button.removeClass('loading');
         });
@@ -240,16 +242,16 @@ $(document).ready(function () {
             const rowData = guidesDataTable.row(index).data();
             syncPromises.push(
                 new Promise(resolve => setTimeout(resolve, index * 100))
-                    .then(() => simulateSync(rowData.idGuia))
+                    .then(() => simulateSync(rowData.numeroGuia))
                     .then(newStatus => {
                         rowData.estado = newStatus;
                         rowData.fechaConsulta = moment().format('DD-MM-YYYY HH:mm');
                         guidesDataTable.row(index).data(rowData).invalidate();
-                        return { id: rowData.idGuia, status: 'success' };
+                        return { id: rowData.numeroGuia, status: 'success' };
                     })
                     .catch(error => {
-                        console.error(`Error sincronizando ${rowData.idGuia}:`, error);
-                        return { id: rowData.idGuia, status: 'error' };
+                        console.error(`Error sincronizando ${rowData.numeroGuia}:`, error);
+                        return { id: rowData.numeroGuia, status: 'error' };
                     })
             );
         });
@@ -361,11 +363,11 @@ $(document).ready(function () {
     function applyEstadoFilter() {
         if (activeFilters.length === 0) {
             // Si no hay filtros, mostrar todas las filas
-            guidesDataTable.column(4).search('').draw();
+            guidesDataTable.column(5).search('').draw();
         } else {
             // Crear expresión regular para el filtro
             const filterRegex = activeFilters.join('|');
-            guidesDataTable.column(4).search(filterRegex, true, false).draw();
+            guidesDataTable.column(5).search(filterRegex, true, false).draw();
         }
 
         // Actualizar contador de resultados
@@ -417,8 +419,8 @@ $(document).ready(function () {
             return true;
         }
 
-        // Obtener el estado de la fila (columna 4, índice 4)
-        const estadoCell = data[4] || '';
+        // Obtener el estado de la fila (columna 5, índice 5)
+        const estadoCell = data[5] || '';
 
         // Extraer solo el texto del estado (sin HTML)
         const tempDiv = $('<div>').html(estadoCell);

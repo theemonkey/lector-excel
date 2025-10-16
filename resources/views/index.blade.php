@@ -44,10 +44,11 @@
                 <table id="guidesTable" class="table table-striped table-bordered w-100">
                     <thead>
                         <tr>
-                            <th>ID Guía</th>
+                            <th>Numero de guia</th>
                             <th>Referencia</th>
                             <th>Destinatario</th>
-                            <th>Dirección</th>
+                            <th>Ciudad</th>
+                            <th>Direccion</th>
                             <th>
                                 <div class="dropdown">
                                     <button class="btn btn-sm btn-outline-light dropdown-toggle border-0 text-white fw-bold" type="button"
