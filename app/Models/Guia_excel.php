@@ -89,7 +89,7 @@ class Guia_excel extends Model
     {
         $this->update([
             'estado' => $nuevoEstado,
-            'fecha_ultima_sincronización' => now(),
+            'fecha_ultima_sincronizacion' => now(),
             'observaciones' => $observaciones
         ]);
     }

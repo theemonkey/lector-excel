@@ -103,7 +103,10 @@ class GuiaExcelController extends Controller
             foreach (array_slice($datos, 1) as $index => $fila) {
                 try {
                     // Validar fila
-                    if (empty($fila[0])) continue; // Saltar filas vacías
+                    if (!isset($fila[0]) || $fila[0] === null || $fila[0] === '' || trim((string)$fila[0]) === '') {
+                        Log::info("Saltando fila vacía en índice: " . ($index + 2));
+                        continue;
+                    }
 
                     $numeroGuia = trim($fila[0]);
 
@@ -135,6 +138,14 @@ class GuiaExcelController extends Controller
 
             DB::commit();
 
+            $todasLasGuias = Guia_excel::orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($guia) {
+                    return $this->formatGuiaParaFrontend($guia);
+                });
+
+            Log::info('Guias formateadas para frontend:', $todasLasGuias->toArray());
+
             return response()->json([
                 'success' => true,
                 'message' => "Archivo procesado exitosamente",
@@ -142,6 +153,7 @@ class GuiaExcelController extends Controller
                     'guias_creadas' => $guiasCreadas,
                     'guias_actualizadas' => $guiasActualizadas,
                     'total_procesadas' => $guiasCreadas + $guiasActualizadas,
+                    'guias' => $todasLasGuias,
                     'errores' => $errores
                 ]
             ]);
@@ -155,20 +167,33 @@ class GuiaExcelController extends Controller
             ], 500);
         }
     }
-/* ================================================================================================= */
+
+    // Método auxiliar para formatear guías para el frontend
+    private function formatGuiaParaFrontend($guia)
+    {
+        $formatted = [
+            'id' => $guia->id,
+            'numero_guia' => $guia->numero_guia,
+            'referencia' => $guia->referencia ?? 'N/A',
+            'destinatario' => $guia->destinatario,
+            'ciudad' => $guia->ciudad ?? 'N/A',
+            'direccion' => $guia->direccion,
+            'estado' => $guia->estado,
+            'fecha_consulta_formateada' => $guia->fecha_consulta ?
+                $guia->fecha_consulta->format('d-m-Y H:i') : 'Nunca',
+            'puede_sincronizar' => $guia->puedeSerSincronizada()
+        ];
+
+        Log::info('Guía formateada:', $formatted);
+        return $formatted;
+    }
+
+    /* ================================================================================================= */
     // Sincronizar guia individual
     public function sincronizarGuia(Request $request, $id)
     {
         try {
             $guia = Guia_excel::findOrFail($id);
-
-            // Agregar NOT (!)
-            if (!$guia->puedeSerSincronizada()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La guía no puede ser sincronizada'
-                ], 422);
-            }
 
             if (!$guia->puedeSerSincronizada()) {
                 return response()->json([
@@ -178,6 +203,7 @@ class GuiaExcelController extends Controller
             }
 
             // Simular llamada a API externa
+            $estadoAnterior = $guia->estado;
             $nuevoEstado = $this->simularSincronizacionAPI($guia->numero_guia);
 
             $guia->marcarComoSincronizada($nuevoEstado);
@@ -188,9 +214,9 @@ class GuiaExcelController extends Controller
                 'data' => [
                     'id' => $guia->id,
                     'numero_guia' => $guia->numero_guia,
-                    'estado_anterior' => $guia->getOriginal('estado'),
-                    'estado_nuevo' => $guia->estado,
-                    'fecha_sincronizacion' => $guia->fecha_ultima_sincronización->format('d-m-Y H:i')
+                    'estado_anterior' => $estadoAnterior,
+                    'estado_nuevo' => $nuevoEstado,
+                    'fecha_sincronizacion' => $guia->fecha_ultima_sincronizacion->format('d-m-Y H:i')
                 ]
             ]);
 

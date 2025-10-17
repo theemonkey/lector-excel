@@ -16,22 +16,15 @@ $(document).ready(function () {
             { "data": "direccion" },
             {
                 "data": "estado", "render": function (data, type, row) {
-                    const badgeClasses = {
-                        'pendiente': 'status-pendiente',
-                        'en proceso': 'status-en-proceso',
-                        'terminado': 'status-terminado',
-                        'error': 'status-error'
-                    };
-                    const badgeClass = badgeClasses[data.toLowerCase()] || 'bg-secondary text-white';
-                    return `<span class="status-badge ${badgeClass}">${data}</span>`;
+                    return formatEstadoBadge(data);
                 }
             },
             { "data": "fechaConsulta", "defaultContent": "N/A" },
             {
-                "data": null, "defaultContent": `
-                        <button class="btn btn-sm btn-primary sync-guide-btn" title="Sincronizar guía">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>`
+                "data": null,
+                "render": function (data, type, row) {
+                    return createActionButton(row.id, row.numeroGuia);
+                }
             }
         ],
         "createdRow": function (row, data, dataIndex) {
@@ -91,54 +84,206 @@ $(document).ready(function () {
         guidesDataTable.clear().draw(); // Limpiar tabla antes de cargar nuevos datos
         syncAllBtn.prop('disabled', true); // Deshabilitar botón de sincronización masiva
 
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
+        // Enviar el archivo a leer al Backend usando FormData (opcional, si se desea procesar en backend)
+        const formData = new FormData();
+        formData.append('archivo', file);
 
-                // Verificar que el archivo tenga hojas
-                if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-                    throw new Error('El archivo Excel no contiene hojas válidas');
+        $.ajax({
+            url: '/guias/procesar-excel', // Ruta real del backend
+            type: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') // Laravel u otro framework con CSRF
+            },
+            success: function (response) {
+                // Manejar la respuesta del backend
+                console.log("Archivo enviado al backend exitosamente:", response);
+
+                if (response.success) {
+                    // Mostrar datos en la tabla
+                    displayGuiasInTable(response.data.guias);
+
+                    // Mostrar notificación de éxito
+                    showNotification(
+                        `Excel procesado: ${response.data.guias_creadas} creadas, ${response.data.guias_actualizadas} actualizadas`,
+                        'success'
+                    );
+
+                    // Habilitar botón de sincronización masiva
+                    syncAllBtn.prop('disabled', false);
+
+                } else {
+                    showNotification('Error: ' + response.message, 'error');
                 }
-
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-
-                // Convertir la hoja de cálculo a un array de objetos JSON
-                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-                // Verificar que hay datos
-                if (!json || json.length < 2) {
-                    throw new Error('El archivo Excel está vacío o no tiene el formato correcto');
-                }
-
-                const processedData = processExcelData(json);
-
-                if (processedData.length === 0) {
-                    showError(uploadStatus, 'No se encontraron datos válidos en el archivo Excel.');
-                    return;
-                }
-
-                guidesDataTable.rows.add(processedData).draw();
-                resetFilters();     // Resetear filtros cuando se cargan nuevos datos
-                updateSyncButton(processedData, syncAllBtn);
-                showSuccess(uploadStatus, `Archivo procesado exitosamente. Se cargaron ${processedData.length} guías.`);
-
-            } catch (error) {
-                console.error("Error al procesar el archivo Excel:", error);
-                showError(uploadStatus, `Error al procesar el archivo Excel: ${error.message}`);
-            } finally {
+            },
+            error: function (xhr, status, error) {
+                console.error("Error al enviar el archivo al backend:", error);
+                console.error('Respuesta del servidor:', xhr.responseText);
+                showNotification('Error al procesar el archivo en el servidor.', 'error');
+            },
+            complete: function () {
                 loadingUpload.hide(); // Ocultar spinner
             }
+        });
+    }
+
+    // Mostrar guias en la tabla desde respuesta del backend
+    function displayGuiasInTable(guias) {
+        console.log("Intentando mostrar guías:", guias);
+
+        guidesDataTable.clear();
+
+        if (!guias || guias.length === 0) {
+            console.log("No hay guías para mostrar");
+            guidesDataTable.draw();
+            return;
+        }
+
+        guias.forEach(function (guia) {
+            const row = {
+                numeroGuia: guia.numero_guia || 'N/A',
+                referencia: guia.referencia || 'N/A',
+                destinatario: guia.destinatario || 'N/A',
+                ciudad: guia.ciudad || 'N/A',
+                direccion: guia.direccion || 'N/A',
+                estado: guia.estado || 'pendiente',
+                fechaConsulta: guia.fecha_consulta_formateada || 'Nunca',
+                id: guia.id,
+                numero_guia: guia.numero_guia
+            };
+
+            console.log("Fila a agregar:", row);
+            guidesDataTable.row.add(row).draw(false);
+        });
+
+        guidesDataTable.draw();
+        console.log("Tabla actualizada");
+    }
+
+    // Crear botón de acción con ID de la base de datos
+    function createActionButton(guiaId, numeroGuia) {
+        return `
+            <button class="btn btn-sm btn-primary sync-guide-btn"
+            data-id="${guiaId}"
+            data-numero="${numeroGuia}"
+            title="Sincronizar guía ${numeroGuia}">
+                <i class="fas fa-sync-alt"></i>
+            </button>`;
+    }
+
+    // Sincronización individual conectada al backend
+    $(document).on('click', '.sync-guide-btn', function () {
+        const button = $(this);
+        const guiaId = button.data('id');
+        const numeroGuia = button.data('numero');
+
+        // Deshabilitar botón durante sincronización
+        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url: `/guias/${guiaId}/sincronizar`,
+            type: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function (response) {
+                if (response.success) {
+                    // Actualizar estado en la tabla
+                    updateRowEstado(button, response.data.estado_nuevo);
+
+                    showNotification(`Guía ${numeroGuia} sincronizada: ${response.data.estado_nuevo}`, 'success');
+                } else {
+                    showNotification('Error: ' + response.message, 'error');
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Error sincronizando guía:', error);
+                showNotification(`Error al sincronizar guía ${numeroGuia}`, 'error');
+            },
+            complete: function () {
+                // Restaurar el botón
+                button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
+            }
+        });
+    });
+
+    // Actualizar estado en la fila de la tabla
+    function updateRowEstado(button, nuevoEstado) {
+        const row = guidesDataTable.row(button.closest('tr'));
+        const data = row.data();
+
+        // Actualizar columna de estado
+        data.estado = nuevoEstado;
+        data.fechaConsulta = new Date().toLocaleString('es-ES'); // Actualizar fecha de consulta
+
+        row.data(data).draw();
+    }
+
+    // Sincronización masiva conectada al backend
+    $('#syncAllBtn').on('click', function () {
+        const button = $(this);
+
+        if (confirm('¿Estás seguro de sincronizar todas las guías en proceso?')) {
+            button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sincronizando...');
+
+            $.ajax({
+                url: '/guias/sincronizar-masiva',
+                type: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+                },
+                success: function (response) {
+                    if (response.success) {
+                        showNotification(`Sincronización masiva completada: ${response.data.exitosas} exitosas, ${response.data.fallidas} fallidas`, 'success');
+
+                        // Recargar datos de la tabla
+                        reloadTableData();
+                    } else {
+                        showNotification('Error: ' + response.message, 'error');
+                    }
+                },
+                error: function (xhr, status, error) {
+                    console.error('Error en sincronización masiva:', error);
+                    showNotification('Error en la sincronización masiva.', 'error');
+                },
+                complete: function () {
+                    button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i> Sincronizar Todas las Guías en Proceso');
+                }
+            });
+        }
+    });
+
+    // Recargar datos de la tabla desde el backend
+    function reloadTableData() {
+        $.ajax({
+            url: '/guias',
+            type: 'GET',
+            success: function (response) {
+                if (response.success) {
+                    displayGuiasInTable(response.data);
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Error recargando datos:', error);
+            }
+        });
+    }
+
+    // Estados
+    function formatEstadoBadge(estado) {
+        const badgeClasses = {
+            'pendiente': 'status-pendiente',
+            'en_proceso': 'status-en-proceso',
+            'terminado': 'status-terminado',
+            'error': 'status-error'
         };
 
-        reader.onerror = function () {
-            loadingUpload.hide();
-            showError($('#uploadStatus'), 'Error al leer el archivo. Intenta nuevamente.');
-        };
+        const estadoNormalizado = estado.toLowerCase().replace(' ', '_');
+        const badgeClass = badgeClasses[estadoNormalizado] || 'bg-secondary text-white';
 
-        reader.readAsArrayBuffer(file);
+        return `<span class="status-badge ${badgeClass}">${estado.toUpperCase()}</span>`;
     }
 
     function processExcelData(json) {
@@ -436,5 +581,17 @@ $(document).ready(function () {
         setTimeout(function () {
             initializeDropdownFilter();
         }, 500);
+    });
+
+    // Test de conectividad al backend
+    $.ajax({
+        url: '/guias',
+        type: 'GET',
+        success: function (response) {
+            console.log('Backend conectado:', response);
+        },
+        error: function (xhr, status, error) {
+            console.error('Error conectando backend:', xhr.status, xhr.responseText);
+        }
     });
 });
