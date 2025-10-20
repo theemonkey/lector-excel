@@ -347,3 +347,62 @@ h1 .fas {
     }
 }
 /* ==================================================================================*/
+/* ========================================
+   MODAL DE CONFIRMACIÓN(Sincronización) PERSONALIZADO
+======================================== */
+.modal-content {
+    border-radius: var(--border-radius);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    border: none;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-top-left-radius: var(--border-radius);
+    border-top-right-radius: var(--border-radius);
+}
+
+.modal-title {
+    color: var(--primary-blue);
+    font-weight: 600;
+}
+
+.modal-body {
+    padding: 2rem 1.5rem;
+    color: #495057;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.modal-footer {
+    background: #f8f9fa;
+    border-bottom-left-radius: var(--border-radius);
+    border-bottom-right-radius: var(--border-radius);
+    padding: 1rem 1.5rem;
+}
+
+.modal-footer .btn {
+    min-width: 100px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: var(--transition);
+}
+
+.modal-footer .btn:hover {
+    transform: translateY(-1px);
+}
+
+/* Animación del modal */
+.modal.fade .modal-dialog {
+    transform: scale(0.8) translateY(-50px);
+    transition: transform 0.3s ease-out;
+}
+
+.modal.show .modal-dialog {
+    transform: scale(1) translateY(0);
+}
+
+/* Backdrop personalizado */
+.modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.6);
+}

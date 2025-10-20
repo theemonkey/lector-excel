@@ -72,79 +72,108 @@ class GuiaExcelController extends Controller
             ], 500);
         }
     }
-/*================================================================================================================= */
-    // Procesar archivo Excel
-    public function procesarExcel(Request $request) {
+    /*================================================================================================================= */
+    // Procesar archivo Excel subido
+    public function procesarExcel(Request $request)
+    {
         $request->validate([
             'archivo' => 'required|file|mimes:xlsx,xls|max:10240'
         ]);
 
         try {
-            DB::beginTransaction();
-
             $archivo = $request->file('archivo');
             $nombreArchivo = $archivo->getClientOriginalName();
 
-            // Leer Excel
+            // Cargar Excel
             $spreadsheet = IOFactory::load($archivo->getPathname());
             $worksheet = $spreadsheet->getActiveSheet();
-            $datos = $worksheet->toArray();
+            $filas = $worksheet->toArray();
 
-            // Validar escritura
-            if (count($datos) < 2) {
-                throw new \Exception('El archivo debe tener al menos una fila de datos además del encabezado');
+            Log::info('=== BÚSQUEDA INTELIGENTE DE ENCABEZADOS ===', [
+                'archivo' => $nombreArchivo,
+                'total_filas' => count($filas)
+            ]);
+
+            // Buscar en TODA la hoja por palabras clave de "guía"
+            $encabezadosEncontrados = $this->buscarEncabezadosInteligente($filas);
+
+            if (!$encabezadosEncontrados) {
+                throw new \Exception('No se encontraron encabezados válidos con "guía", "numero de guia" o similares en todo el archivo');
             }
 
-            // Procesar filas (asumiendo que la primera fila es el encabezado)
+            $filaEncabezados = $encabezadosEncontrados['fila'];
+            $columnaGuia = $encabezadosEncontrados['columna_guia'];
+            $mapeoColumnas = $encabezadosEncontrados['mapeo'];
+
+            Log::info('Encabezados encontrados:', [
+                'fila' => $filaEncabezados + 1,
+                'columna_guia' => $columnaGuia,
+                'mapeo_columnas' => $mapeoColumnas
+            ]);
+
+            // Procesar datos
+            DB::beginTransaction();
+
             $guiasCreadas = 0;
             $guiasActualizadas = 0;
             $errores = [];
 
-            foreach (array_slice($datos, 1) as $index => $fila) {
+            // Procesar filas DESPUÉS de los encabezados
+            for ($i = $filaEncabezados + 1; $i < count($filas); $i++) {
+                $fila = $filas[$i];
+                $numeroFila = $i + 1;
+
                 try {
-                    // Validar fila
-                    if (!isset($fila[0]) || $fila[0] === null || $fila[0] === '' || trim((string)$fila[0]) === '') {
-                        Log::info("Saltando fila vacía en índice: " . ($index + 2));
+                    // Saltar filas completamente vacías
+                    if (empty(array_filter($fila))) {
                         continue;
                     }
 
-                    $numeroGuia = trim($fila[0]);
+                    // Obtener número de guía usando la columna detectada
+                    $numeroGuia = isset($fila[$columnaGuia]) ? trim($fila[$columnaGuia]) : '';
 
-                    // Buscar si ya existe
-                    $guia = Guia_excel::where('numero_guia', $numeroGuia)->first();
+                    if (empty($numeroGuia)) {
+                        continue;
+                    }
 
+                    Log::info("Procesando guía: $numeroGuia de fila $numeroFila");
+
+                    // Extraer datos usando el mapeo de columnas detectado
                     $datosGuia = [
                         'numero_guia' => $numeroGuia,
-                        'referencia' => $fila[1] ?? null,
-                        'destinatario' => $fila[2] ?? 'N/A',
-                        'ciudad' => $fila[3] ?? null,
-                        'direccion' => $fila[4] ?? 'N/A',
-                        'estado' => $this->normalizarEstado($fila[5] ?? 'pendiente'),
-                        'fecha_consulta' => $this->procesarFecha($fila[6] ?? null),
+                        'referencia' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'referencia'),
+                        'destinatario' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'destinatario') ?: 'N/A',
+                        'ciudad' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'ciudad'),
+                        'direccion' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'direccion') ?: 'N/A',
+                        'estado' => $this->normalizarEstado($this->obtenerDatoColumna($fila, $mapeoColumnas, 'estado') ?: 'pendiente'),
+                        'fecha_consulta' => $this->procesarFecha($this->obtenerDatoColumna($fila, $mapeoColumnas, 'fecha')),
                         'archivo_origen' => $nombreArchivo
                     ];
 
-                    if ($guia) {
-                        $guia->update($datosGuia);
+                    // Verificar si ya existe
+                    $guiaExistente = Guia_excel::where('numero_guia', $numeroGuia)->first();
+
+                    if ($guiaExistente) {
+                        $guiaExistente->update($datosGuia);
                         $guiasActualizadas++;
                     } else {
-                        Guia_excel::create($datosGuia);
+                        $nuevaGuia = Guia_excel::create($datosGuia);
                         $guiasCreadas++;
                     }
                 } catch (\Exception $e) {
-                    $errores[] = "Fila " . ($index + 2) . ": " . $e->getMessage();
+                    Log::error("Error en fila $numeroFila: " . $e->getMessage());
+                    $errores[] = "Fila $numeroFila: " . $e->getMessage();
                 }
             }
 
             DB::commit();
 
+            // Obtener todas las guías para el frontend
             $todasLasGuias = Guia_excel::orderBy('created_at', 'desc')
                 ->get()
                 ->map(function ($guia) {
                     return $this->formatGuiaParaFrontend($guia);
                 });
-
-            Log::info('Guias formateadas para frontend:', $todasLasGuias->toArray());
 
             return response()->json([
                 'success' => true,
@@ -157,18 +186,118 @@ class GuiaExcelController extends Controller
                     'errores' => $errores
                 ]
             ]);
-
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Error al procesar archivo Excel: ' . $e->getMessage());
+            Log::error('Error procesando Excel: ' . $e->getMessage());
+
             return response()->json([
                 'success' => false,
-                'message' => 'Error al procesar archivo Excel: ' . $e->getMessage()
+                'message' => 'Error al procesar Excel: ' . $e->getMessage()
             ], 500);
         }
     }
 
-    // Método auxiliar para formatear guías para el frontend
+    // Busca encabezados de manera inteligente en toda la hoja
+    // Si se requiere agregar más palabras clave, se pueden añadir al array $palabrasClaveGuia
+    private function buscarEncabezadosInteligente($filas)
+    {
+        $palabrasClaveGuia = [
+            'guia',
+            'guía',
+            'numero de guia',
+            'número de guía',
+            'numero_guia',
+            'número_guía',
+            'numero guia',
+            'número guia',
+            'número guía',
+            'no. guia',
+            'no. guía',
+            'num guia',
+            'num guía',
+            'guide',
+            'tracking'
+        ];
+
+        // Buscar en todas las filas y columnas
+        for ($fila = 0; $fila < count($filas); $fila++) {
+            $filaActual = $filas[$fila];
+
+            for ($columna = 0; $columna < count($filaActual); $columna++) {
+                $celda = $filaActual[$columna] ?? '';
+                $celdaLimpia = strtolower(trim($celda));
+
+                // Verificar si esta celda contiene alguna palabra clave de guía
+                foreach ($palabrasClaveGuia as $palabraClave) {
+                    if ($celdaLimpia === $palabraClave || strpos($celdaLimpia, $palabraClave) !== false) {
+
+                        Log::info("¡Palabra clave encontrada!", [
+                            'palabra' => $palabraClave,
+                            'celda_original' => $celda,
+                            'fila' => $fila + 1,
+                            'columna' => $columna + 1,
+                            'fila_completa' => $filaActual
+                        ]);
+
+                        // Mapear otras columnas en la misma fila
+                        $mapeoColumnas = $this->mapearColumnasEncabezados($filaActual, $columna);
+
+                        return [
+                            'fila' => $fila,
+                            'columna_guia' => $columna,
+                            'mapeo' => $mapeoColumnas
+                        ];
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Mapea las columnas basándose en los encabezados encontrados
+    private function mapearColumnasEncabezados($filaEncabezados, $columnaGuia)
+    {
+        $mapeo = ['guia' => $columnaGuia];
+
+        // Palabras clave para cada tipo de campo
+        $palabrasClaveMapeo = [
+            'referencia' => ['referencia', 'ref', 'reference', 'codigo', 'código'],
+            'destinatario' => ['destinatario', 'cliente', 'nombre', 'receptor', 'consignatario'],
+            'ciudad' => ['ciudad', 'city', 'municipio', 'localidad'],
+            'direccion' => ['direccion', 'dirección', 'address', 'ubicacion', 'ubicación'],
+            'estado' => ['estado', 'status', 'situacion', 'situación'],
+            'fecha' => ['fecha', 'date', 'tiempo', 'time', 'consulta']
+        ];
+
+        // Buscar cada tipo de campo en los encabezados
+        for ($i = 0; $i < count($filaEncabezados); $i++) {
+            $encabezado = strtolower(trim($filaEncabezados[$i] ?? ''));
+
+            foreach ($palabrasClaveMapeo as $campo => $palabrasClave) {
+                foreach ($palabrasClave as $palabra) {
+                    if (strpos($encabezado, $palabra) !== false) {
+                        $mapeo[$campo] = $i;
+                        Log::info("Campo mapeado: $campo en columna " . ($i + 1) . " ($encabezado)");
+                        break 2; // Salir de ambos bucles
+                    }
+                }
+            }
+        }
+        return $mapeo;
+    }
+
+    // Obtiene datos de una columna usando el mapeo
+    private function obtenerDatoColumna($fila, $mapeoColumnas, $campo)
+    {
+        if (!isset($mapeoColumnas[$campo])) {
+            return null;
+        }
+
+        $columna = $mapeoColumnas[$campo];
+        return isset($fila[$columna]) ? trim($fila[$columna]) : null;
+    }
+
+    // ============ Método auxiliar para formatear guías para el frontend ==========
     private function formatGuiaParaFrontend($guia)
     {
         $formatted = [

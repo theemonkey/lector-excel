@@ -4,7 +4,7 @@ $(document).ready(function () {
     // Inicializar DataTable
     guidesDataTable = $('#guidesTable').DataTable({
         "language": {
-            "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json" // Traducción al español
+            "url": "https://cdn.datatables.net/plug-ins/1.13.6/i18n/es-ES.json" // Traducción al español
         },
         "responsive": true,
         "ordering": false,   // Ordenamiento desactivado
@@ -173,7 +173,7 @@ $(document).ready(function () {
             </button>`;
     }
 
-    // Sincronización individual conectada al backend
+    // ======>>> Sincronización individual conectada al backend <<<======
     $(document).on('click', '.sync-guide-btn', function () {
         const button = $(this);
         const guiaId = button.data('id');
@@ -221,40 +221,105 @@ $(document).ready(function () {
         row.data(data).draw();
     }
 
+    // =====>>> Sincronización masiva conectada al backend <<<<=====
     // Sincronización masiva conectada al backend
     $('#syncAllBtn').on('click', function () {
         const button = $(this);
 
-        if (confirm('¿Estás seguro de sincronizar todas las guías en proceso?')) {
-            button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sincronizando...');
-
-            $.ajax({
-                url: '/guias/sincronizar-masiva',
-                type: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-                },
-                success: function (response) {
-                    if (response.success) {
-                        showNotification(`Sincronización masiva completada: ${response.data.exitosas} exitosas, ${response.data.fallidas} fallidas`, 'success');
-
-                        // Recargar datos de la tabla
-                        reloadTableData();
-                    } else {
-                        showNotification('Error: ' + response.message, 'error');
-                    }
-                },
-                error: function (xhr, status, error) {
-                    console.error('Error en sincronización masiva:', error);
-                    showNotification('Error en la sincronización masiva.', 'error');
-                },
-                complete: function () {
-                    button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i> Sincronizar Todas las Guías en Proceso');
-                }
-            });
-        }
+        // Usar modal personalizado en lugar de confirm() nativo
+        showConfirmationModal(
+            '¿Sincronizar todas las guías en proceso?',
+            function () {
+                // Función que se ejecuta al presionar "Aceptar"
+                performMassSync(button);
+            }
+        );
     });
 
+    // Realizar sincronización masiva
+    function performMassSync(button) {
+        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sincronizando...');
+
+        $.ajax({
+            url: '/guias/sincronizar-masiva',
+            type: 'POST',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function (response) {
+                if (response.success) {
+                    showNotification(`Sincronización masiva completada: ${response.data.exitosas} exitosas, ${response.data.fallidas} fallidas`, 'success');
+                    // Recargar datos de la tabla
+                    reloadTableData();
+                } else {
+                    showNotification('Error: ' + response.message, 'error');
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Error en sincronización masiva:', error);
+                showNotification('Error en la sincronización masiva.', 'error');
+            },
+            complete: function () {
+                button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i> Sincronizar Todas las Guías en Proceso');
+            }
+        });
+    }
+
+    // Modal de confirmación personalizado
+    function showConfirmationModal(message, onConfirm, onCancel = null) {
+        // Crear modal HTML
+        const modalHtml = `
+        <div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header border-0">
+                        <h5 class="modal-title fw-bold text-primary" id="confirmationModalLabel">
+                            <i class="fas fa-question-circle me-2"></i>Confirmación
+                        </h5>
+                    </div>
+                    <div class="modal-body text-center py-4">
+                        <p class="mb-0 fs-6">${message}</p>
+                    </div>
+                    <div class="modal-footer border-0 justify-content-center">
+                        <button type="button" class="btn btn-primary px-4" id="confirmBtn">
+                            <i class="fas fa-check me-1"></i>Aceptar
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary px-4" id="cancelBtn" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i>Cancelar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+        // Remover modal anterior si existe
+        $('#confirmationModal').remove();
+
+        // Agregar modal al body
+        $('body').append(modalHtml);
+
+        // Configurar eventos
+        $('#confirmBtn').on('click', function () {
+            $('#confirmationModal').modal('hide');
+            if (onConfirm) onConfirm();
+        });
+
+        $('#cancelBtn').on('click', function () {
+            $('#confirmationModal').modal('hide');
+            if (onCancel) onCancel();
+        });
+
+        // Mostrar modal
+        $('#confirmationModal').modal('show');
+
+        // Limpiar modal después de cerrarse
+        $('#confirmationModal').on('hidden.bs.modal', function () {
+            $(this).remove();
+        });
+    }
+
+    /* =================================================================================================== */
     // Recargar datos de la tabla desde el backend
     function reloadTableData() {
         $.ajax({
@@ -286,150 +351,7 @@ $(document).ready(function () {
         return `<span class="status-badge ${badgeClass}">${estado.toUpperCase()}</span>`;
     }
 
-    function processExcelData(json) {
-        const rawData = json.slice(1); // Datos sin encabezado
-        // # de celdas segun el archivo excel a subir (7 columnas: A-G)
-        return rawData
-            .filter(row => row && row.length > 0 && row[0]) // Filtrar filas vacías
-            .map(row => ({
-                numeroGuia: row[0] || 'N/A', // Columna A
-                referencia: row[1] || 'N/A', // Columna B
-                destinatario: row[2] || 'N/A', // Columna C
-                ciudad: row[3] || 'N/A', // Columna D
-                direccion: row[4] || 'N/A', // Columna E
-                estado: row[5] || 'Pendiente', // Columna F (estado inicial del excel)
-                fechaConsulta: row[6] ? moment(row[6], 'DD/MM/YYYY HH:mm').format('DD-MM-YYYY HH:mm') : 'Nunca', // Columna G
-            }));
-    }
-
-    function updateSyncButton(data, syncBtn) {
-        const hasGuiaEnProceso = data.some(g =>
-            ['en proceso', 'pendiente'].includes(g.estado.toLowerCase())
-        );
-        syncBtn.prop('disabled', !hasGuiaEnProceso);
-    }
-
-    function showError(container, message) {
-        const alertElement = $(`<div class="alert alert-danger alert-dismissible mt-2" role="alert">${message}
-    </div>`);
-
-        container.html(alertElement);
-        //Oculto después de 4 seg
-        setTimeout(() => {
-            alertElement.fadeOut(500, () => alertElement.remove());
-        }, 4000); // Desaparece después de 4 segundos
-    }
-
-    function showSuccess(container, message) {
-        const alertElement = $(`<div class="alert alert-success alert-dismissible mt-2" role="alert">${message}
-    </div>`);
-
-        container.html(alertElement);
-        //Oculto después de 3 seg
-        setTimeout(() => {
-            alertElement.fadeOut(500, () => alertElement.remove());
-        }, 3000); // Desaparece después de 3 segundos
-    }
-
     /* =================================================================================================== */
-    // Lógica de sincronización individual (delegación de eventos para botones dinámicos)
-    $('#guidesTable tbody').on('click', '.sync-guide-btn', function () {
-        const button = $(this);
-        const rowData = guidesDataTable.row(button.parents('tr')).data();
-
-        if (rowData.estado.toLowerCase() === 'terminado' || rowData.estado.toLowerCase() === 'error') {
-            showNotification('Esta guía ya está terminada o con error y no se puede sincronizar.', 'info');
-            return;
-        }
-
-        button.prop('disabled', true).addClass('loading');
-
-        simulateSync(rowData.numeroGuia).then(newStatus => {
-            rowData.estado = newStatus;
-            rowData.fechaConsulta = moment().format('DD-MM-YYYY HH:mm');
-            guidesDataTable.row(button.parents('tr')).data(rowData).invalidate().draw(false);
-            showNotification(`Guía ${rowData.numeroGuia} sincronizada. Nuevo estado: ${newStatus}`, 'success');
-
-            if (newStatus.toLowerCase() === 'terminado' || newStatus.toLowerCase() === 'error') {
-                button.prop('disabled', true).attr('title', 'Guía terminada o con error, no se puede sincronizar.');
-            } else {
-                button.prop('disabled', false);
-            }
-        }).catch(error => {
-            console.error("Error sincronizando guía:", rowData.numeroGuia, error);
-            showNotification(`Error al sincronizar guía ${rowData.numeroGuia}.`, 'error');
-        }).finally(() => {
-            button.removeClass('loading');
-        });
-    });
-
-    // Funciones de sincronización y utilidad
-    $('#syncAllBtn').on('click', function () {
-        const syncAllButton = $(this);
-        const syncLoading = $('#syncLoading');
-        syncAllButton.prop('disabled', true);
-        syncLoading.show();
-
-        const guiasEnProceso = guidesDataTable.rows().indexes().filter(function (idx) {
-            const data = guidesDataTable.row(idx).data();
-            return data.estado.toLowerCase() === 'en proceso' || data.estado.toLowerCase() === 'pendiente';
-        });
-
-        if (guiasEnProceso.length === 0) {
-            showNotification('No hay guías en proceso para sincronizar.', 'info');
-            syncAllButton.prop('disabled', false);
-            syncLoading.hide();
-            return;
-        }
-
-        let syncPromises = [];
-        guiasEnProceso.each(function (index) {
-            const rowData = guidesDataTable.row(index).data();
-            syncPromises.push(
-                new Promise(resolve => setTimeout(resolve, index * 100))
-                    .then(() => simulateSync(rowData.numeroGuia))
-                    .then(newStatus => {
-                        rowData.estado = newStatus;
-                        rowData.fechaConsulta = moment().format('DD-MM-YYYY HH:mm');
-                        guidesDataTable.row(index).data(rowData).invalidate();
-                        return { id: rowData.numeroGuia, status: 'success' };
-                    })
-                    .catch(error => {
-                        console.error(`Error sincronizando ${rowData.numeroGuia}:`, error);
-                        return { id: rowData.numeroGuia, status: 'error' };
-                    })
-            );
-        });
-
-        Promise.allSettled(syncPromises).then(() => {
-            guidesDataTable.draw(false);
-            showNotification('Sincronización masiva completada. Revisa los estados.', 'success');
-        }).finally(() => {
-            syncLoading.hide();
-            const remainingInProcess = guidesDataTable.rows().data().toArray().some(g =>
-                g.estado.toLowerCase() === 'en proceso' || g.estado.toLowerCase() === 'pendiente'
-            );
-            syncAllButton.prop('disabled', !remainingInProcess);
-        });
-    });
-
-    // Simulación de llamada a API para sincronizar guía
-    function simulateSync(guideId) {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                const random = Math.random();
-                let newStatus;
-                if (random < 0.2) {
-                    newStatus = 'Terminado';  // 20% de probabilidad
-                } else if (random < 0.8) {
-                    newStatus = 'En proceso';  // 60% de probabilidad
-                } else {
-                    newStatus = 'Error';  // 20% de probabilidad de error
-                }
-                resolve(newStatus);
-            }, 1500);
-        });
-    }
     // Función para mostrar notificaciones luego de la sincronizacion(masiva-individual)
     function showNotification(message, type = 'info') {
         console.log(`Notificación (${type}): ${message}`);
