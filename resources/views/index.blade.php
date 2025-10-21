@@ -8,7 +8,7 @@
     <h1 class="mb-3 text-center">
         <i class="fas fa-shipping-fast text-primary me-2"></i>Gestión de Guías de Rastreo
     </h1>
-    <p class="text-center text-muted mb-3">Sube tu archivo Excel, visualiza las guías y sincroniza su estado de entrega.</p>
+    <p class="text-center text-muted mb-3">Sube un archivo Excel, visualiza las guías y sincroniza su estado de entrega.</p>
 
     <div class="card mb-5">
         <div class="card-header bg-primary text-white">
@@ -106,7 +106,7 @@
             </div>
             <div class="mt-3 text-end">
                 <button type="button" class="btn btn-warning" id="syncAllBtn" disabled>
-                    <i class="fas fa-sync-alt me-2"></i>Sincronizar Todas las Guías en Proceso
+                    <i class="fas fa-sync-alt me-2"></i>Ver Reporte de Estado
                 </button>
                 <div id="syncLoading" class="mt-2 text-center" style="display:none;">
                     <div class="spinner-border text-warning" role="status">

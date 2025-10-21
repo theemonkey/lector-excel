@@ -45,7 +45,17 @@ class Guia_excel extends Model
 
     public function scopeEnProceso($query)
     {
-        return $query->whereIn('estado', ['pendiente', 'en_proceso']);
+        return $query->where('estado', 'en_proceso');
+    }
+
+    public function scopePendientes($query)
+    {
+        return $query->where('estado', 'pendiente');
+    }
+
+    public function scopeEnTransito($query)
+    {
+        return $query->where('estado', 'en_proceso');
     }
 
     public function scopeTerminadas($query)
@@ -56,16 +66,22 @@ class Guia_excel extends Model
     // Mutator para formatear fechas al obtener
     public function setEstadoAttribute($value)
     {
-        $this->attributes['estado'] = strtolower($value);
+        $estadoAnterior = $this->attributes['estado'] ?? null;
+        $nuevoEstado = strtolower($value);
 
-        // Actualizar historial de estados
-        $historial = $this->historial_estados ?? [];
-        $historial[] = [
-            'estado' => strtolower($value),
-            'fecha' => now(),
-            'timestamp' => time()
-        ];
-        $this->attributes['historial_estados'] = json_encode($historial);
+        // Actualizar historial de estados si el estado realmente cambió
+        if ($estadoAnterior !== $nuevoEstado) {
+            $historial = $this->historial_estados ?? [];
+            $historial[] = [
+                'estado_anterior' => $estadoAnterior,
+                'estado_nuevo' => $nuevoEstado,
+                'fecha' => now()->toISOString(),
+                'timestamp' => time(),
+                'accion' => 'cambio_estado'
+            ];
+            $this->attributes['historial_estados'] = json_encode($historial);
+        }
+        $this->attributes['estado'] = $nuevoEstado;
     }
 
     // Accessor para obtener el estado formateado
@@ -82,7 +98,26 @@ class Guia_excel extends Model
     // Metodos de utilidad
     public function puedeSerSincronizada()
     {
+        // Solo se pueden sincronizar guías en estado 'pendiente' o 'en_proceso'
         return in_array($this->estado, ['pendiente', 'en_proceso']);
+    }
+
+    // Método para obtener siguiente estado lógico
+    public function obtenerSiguienteEstado()
+    {
+        switch ($this->estado) {
+            case 'pendiente':
+                // Pendiente puede ir a en_proceso o directamente a terminado
+                return ['en_proceso', 'terminado', 'error'];
+
+            case 'en_proceso':
+                // En proceso solo puede ir a estados finales
+                return ['terminado', 'error', 'cancelado'];
+
+            default:
+                // Estados finales no tienen siguiente estado
+                return [$this->estado];
+        }
     }
 
     public function marcarComoSincronizada($nuevoEstado, $observaciones = null)
@@ -90,6 +125,7 @@ class Guia_excel extends Model
         $this->update([
             'estado' => $nuevoEstado,
             'fecha_ultima_sincronizacion' => now(),
+            'fecha_consulta' => now(),
             'observaciones' => $observaciones
         ]);
     }

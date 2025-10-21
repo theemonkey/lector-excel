@@ -133,6 +133,10 @@ $(document).ready(function () {
     function displayGuiasInTable(guias) {
         console.log("Intentando mostrar guías:", guias);
 
+        //Guardar página actual
+        const currentPage = guidesDataTable.page();
+
+        // Limpiar tabla antes de agregar nuevas filas
         guidesDataTable.clear();
 
         if (!guias || guias.length === 0) {
@@ -155,11 +159,20 @@ $(document).ready(function () {
             };
 
             console.log("Fila a agregar:", row);
-            guidesDataTable.row.add(row).draw(false);
+            guidesDataTable.row.add(row);
         });
-
+        // Redibujar tabla
         guidesDataTable.draw();
-        console.log("Tabla actualizada");
+
+        // Mantener página actual si es posible
+        try {
+            if (currentPage < guidesDataTable.page.info().pages) {
+                guidesDataTable.page(currentPage).draw('page');
+            }
+        } catch (e) {
+            console.error("Error al mantener la página actual:", e);
+        }
+        console.log("Tabla actualizada manteniendo paginación");
     }
 
     // Crear botón de acción con ID de la base de datos
@@ -190,10 +203,13 @@ $(document).ready(function () {
             },
             success: function (response) {
                 if (response.success) {
-                    // Actualizar estado en la tabla
-                    updateRowEstado(button, response.data.estado_nuevo);
-
-                    showNotification(`Guía ${numeroGuia} sincronizada: ${response.data.estado_nuevo}`, 'success');
+                    // Mostrar información de sincronización
+                    const info = response.data;
+                    showNotification(`Guía ${numeroGuia}: ${info.estado_actual.toUpperCase()} |
+                    última sincronización: ${info.fecha_ultima_sincronizacion} |
+                    ${info.info}`,
+                        info.puede_progresar ? 'info' : 'warning'
+                    );
                 } else {
                     showNotification('Error: ' + response.message, 'error');
                 }
@@ -208,19 +224,7 @@ $(document).ready(function () {
             }
         });
     });
-
-    // Actualizar estado en la fila de la tabla
-    function updateRowEstado(button, nuevoEstado) {
-        const row = guidesDataTable.row(button.closest('tr'));
-        const data = row.data();
-
-        // Actualizar columna de estado
-        data.estado = nuevoEstado;
-        data.fechaConsulta = new Date().toLocaleString('es-ES'); // Actualizar fecha de consulta
-
-        row.data(data).draw();
-    }
-
+    /* ========= */
     // =====>>> Sincronización masiva conectada al backend <<<<=====
     // Sincronización masiva conectada al backend
     $('#syncAllBtn').on('click', function () {
@@ -235,8 +239,9 @@ $(document).ready(function () {
             }
         );
     });
+    /* ========= */
 
-    // Realizar sincronización masiva
+    // Realizar sincronización masiva - Solo mostrar reporte
     function performMassSync(button) {
         button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> Sincronizando...');
 
@@ -247,20 +252,32 @@ $(document).ready(function () {
                 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
             },
             success: function (response) {
+                console.log('Respuesta completa del servidor:', response);
+
                 if (response.success) {
-                    showNotification(`Sincronización masiva completada: ${response.data.exitosas} exitosas, ${response.data.fallidas} fallidas`, 'success');
-                    // Recargar datos de la tabla
-                    reloadTableData();
+                    const stats = response.data.estadisticas;
+                    const mensaje = `REPORTE DE ESTADO:
+                        Pendientes: ${stats.pendientes} | En Proceso: ${stats.en_proceso} | 
+                        Terminadas: ${stats.terminadas} | Con Error: ${stats.con_error} |
+                        Sincronizadas hoy: ${response.data.sincronizadas_hoy}`;
+
+                    showNotification(mensaje, 'info');
+
+                    // Actualizar tabla
+                    if (response.data.guias_actualizadas) {
+                        displayGuiasInTable(response.data.guias_actualizadas);
+                    }
                 } else {
                     showNotification('Error: ' + response.message, 'error');
                 }
             },
             error: function (xhr, status, error) {
                 console.error('Error en sincronización masiva:', error);
-                showNotification('Error en la sincronización masiva.', 'error');
+                console.error('Respuesta completa:', xhr.responseText);
+                showNotification('Error al generar reporte.', 'error');
             },
             complete: function () {
-                button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i> Sincronizar Todas las Guías en Proceso');
+                button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i> Ver Reporte de Estado');
             }
         });
     }
@@ -348,7 +365,17 @@ $(document).ready(function () {
         const estadoNormalizado = estado.toLowerCase().replace(' ', '_');
         const badgeClass = badgeClasses[estadoNormalizado] || 'bg-secondary text-white';
 
-        return `<span class="status-badge ${badgeClass}">${estado.toUpperCase()}</span>`;
+        // Mostrar nombres en Frontend amigables
+        const nombresAmigables = {
+            'pendiente': 'PENDIENTE',
+            'en_proceso': 'EN PROCESO',
+            'terminado': 'TERMINADO',
+            'error': 'ERROR'
+        };
+
+        const nombreAmigable = nombresAmigables[estadoNormalizado] || estado.toUpperCase();
+
+        return `<span class="status-badge ${badgeClass}">${nombreAmigable}</span>`;
     }
 
     /* =================================================================================================== */

@@ -125,21 +125,21 @@ class GuiaExcelController extends Controller
 
                 try {
                     // Saltar filas completamente vacías
-                    if (empty(array_filter($fila))) {
-                        continue;
-                    }
+                    if (empty(array_filter($fila))) continue;
 
                     // Obtener número de guía usando la columna detectada
                     $numeroGuia = isset($fila[$columnaGuia]) ? trim($fila[$columnaGuia]) : '';
 
                     if (empty($numeroGuia)) {
-                        continue;
+                        Log::warning("Saltando fila {$numeroFila} por número de guía vacío");
+                        $errores[] = "Fila {$numeroFila}: Número de guía vacío.";
+                        continue; // Saltar si el número de guía está vacío
                     }
 
                     Log::info("Procesando guía: $numeroGuia de fila $numeroFila");
 
                     // Extraer datos usando el mapeo de columnas detectado
-                    $datosGuia = [
+                    $datosExcel = [
                         'numero_guia' => $numeroGuia,
                         'referencia' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'referencia'),
                         'destinatario' => $this->obtenerDatoColumna($fila, $mapeoColumnas, 'destinatario') ?: 'N/A',
@@ -154,11 +154,37 @@ class GuiaExcelController extends Controller
                     $guiaExistente = Guia_excel::where('numero_guia', $numeroGuia)->first();
 
                     if ($guiaExistente) {
-                        $guiaExistente->update($datosGuia);
-                        $guiasActualizadas++;
+                        // Detectar cambios - comparar estados y fechas
+                        $huboCambios = $this->detectarCambiosEnGuia($guiaExistente, $datosExcel);
+
+                        if ($huboCambios) {
+                            // Actualizar con registro de sincronización
+                            $this->actualizarGuiaConSincronizacion($guiaExistente, $datosExcel);
+                            $guiasActualizadas++;
+
+                            Log::info("Guía $numeroGuia SINCRONIZADA - Cambios detectados", [
+                                'estado_anterior' => $guiaExistente->estado,
+                                'estado_nuevo' => $datosExcel['estado'],
+                                'fecha_anterior' => $guiaExistente->fecha_consulta,
+                                'fecha_nueva' => $datosExcel['fecha_consulta']
+                            ]);
+                        } else {
+                            // Solo actualizar campos no criticos sin contar como sincronización
+                            $guiaExistente->update([
+                                'referencia' => $datosExcel['referencia'],
+                                'destinatario' => $datosExcel['destinatario'],
+                                'ciudad' => $datosExcel['ciudad'],
+                                'direccion' => $datosExcel['direccion'],
+                                'archivo_origen' => $nombreArchivo
+                            ]);
+
+                            Log::info("Guía $numeroGuia actualizada sin cambios críticos");
+                        }
                     } else {
-                        $nuevaGuia = Guia_excel::create($datosGuia);
+                        // Crear nueva guía
+                        Guia_excel::create($datosExcel);
                         $guiasCreadas++;
+                        Log::info("Guía $numeroGuia CREADA");
                     }
                 } catch (\Exception $e) {
                     Log::error("Error en fila $numeroFila: " . $e->getMessage());
@@ -324,117 +350,131 @@ class GuiaExcelController extends Controller
         try {
             $guia = Guia_excel::findOrFail($id);
 
-            if (!$guia->puedeSerSincronizada()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'La guía no puede ser sincronizada'
-                ], 422);
-            }
-
-            // Simular llamada a API externa
-            $estadoAnterior = $guia->estado;
-            $nuevoEstado = $this->simularSincronizacionAPI($guia->numero_guia);
-
-            $guia->marcarComoSincronizada($nuevoEstado);
+            // Solo mostrar informacion de progreso
+            $ultimoCambio = $guia->obtenerUltimoCambioEstado();
+            $puedeProgresar = $guia->puedeSerSincronizada();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Guía sincronizada exitosamente',
+                'message' => 'Información de sincronización',
                 'data' => [
                     'id' => $guia->id,
                     'numero_guia' => $guia->numero_guia,
-                    'estado_anterior' => $estadoAnterior,
-                    'estado_nuevo' => $nuevoEstado,
-                    'fecha_sincronizacion' => $guia->fecha_ultima_sincronizacion->format('d-m-Y H:i')
+                    'estado_actual' => $guia->estado,
+                    'fecha_ultima_sincronizacion' => $guia->fecha_ultima_sincronizacion ?
+                        $guia->fecha_ultima_sincronizacion->format('d-m-Y H:i') : 'Nunca',
+                    'ultimo_cambio' => $ultimoCambio,
+                    'puede_progresar' => $puedeProgresar,
+                    'info' => $puedeProgresar ?
+                        'Suba un Excel actualizado para sincronizar automáticamente' :
+                        'La guía está en estado final'
                 ]
             ]);
-
         } catch (\Exception $e) {
-            Log::error('Error al sincronizar guía: ' . $e->getMessage());
+            Log::error('Error al consultar información de guía: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error al sincronizar guía'
-            ], 500);
-        }
-    }
-/* ================================================================================================= */
-    // Sincronización masiva
-    public function sincronizarMasiva(Request $request)
-    {
-        try {
-            $guiasEnProceso = Guia_excel::enProceso()->get();
-
-            if ($guiasEnProceso->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No hay guías en proceso para sincronizar'
-                ], 422);
-            }
-
-            $resultados = [
-                'exitosas' => 0,
-                'fallidas' => 0,
-                'detalles' => []
-            ];
-
-            foreach ($guiasEnProceso as $guia) {
-                try {
-                    $nuevoEstado = $this->simularSincronizacionAPI($guia->numero_guia);
-                    $guia->marcarComoSincronizada($nuevoEstado);
-
-                    $resultados['exitosas']++;
-                    $resultados['detalles'][] = [
-                        'numero_guia' => $guia->numero_guia,
-                        'estado' => 'exitosa',
-                        'nuevo_estado' => $nuevoEstado
-                    ];
-                } catch (\Exception $e) {
-                    $resultados['fallidas']++;
-                    $resultados['detalles'][] = [
-                        'numero_guia' => $guia->numero_guia,
-                        'estado' => 'fallida',
-                        'error' => $e->getMessage()
-                    ];
-                }
-
-                // Pausa pequeña para no saturar
-                usleep(100000); // 0.1 segundos
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Sincronización masiva completada',
-                'data' => $resultados
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error en sincronización masiva: ' . $e->getMessage());
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Error en la sincronización masiva'
+                'message' => 'Error al consultar información de la guía'
             ], 500);
         }
     }
     /* ================================================================================================= */
-    // Métodos auxiliares privados
+    // Sincronización masiva( cambio de estado por lotes)
+    public function sincronizarMasiva(Request $request)
+    {
+        try {
+            //Solo generar reporte del estado actual
+            $estadisticas = [
+                'pendientes' => Guia_excel::where('estado', 'pendiente')->count(),
+                'en_proceso' => Guia_excel::where('estado', 'en_proceso')->count(),
+                'terminadas' => Guia_excel::where('estado', 'terminado')->count(),
+                'canceladas' => Guia_excel::where('estado', 'cancelado')->count(),
+                'con_error' => Guia_excel::where('estado', 'error')->count(),
+                'total' => Guia_excel::count()
+            ];
+
+            $guiasSincronizadasHoy = Guia_excel::whereDate('fecha_ultima_sincronizacion', today())->count();
+
+            // Obtener todas las guías actualizadas
+            $todasLasGuias = Guia_excel::orderBy('created_at', 'desc')
+                ->get()
+                ->map(function ($guia) {
+                    return $this->formatGuiaParaFrontend($guia);
+                });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reporte de estado actual',
+                'data' => [
+                    'estadisticas' => $estadisticas,
+                    'sincronizadas_hoy' => $guiasSincronizadasHoy,
+                    'guias_actualizadas' => $todasLasGuias,
+                    'info' => 'Para sincronizar, sube un Excel actualizado con nuevos estados'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error generando reporte: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar reporte'
+            ], 500);
+        }
+    }
+
+    /* ================================================================================================= */
+    // Métodos auxiliares privados para definir palabras segun estados del excel
     private function normalizarEstado($estado)
     {
         $estado = strtolower(trim($estado));
 
         $mapeo = [
+            // Estados principales
+            'pendiente' => 'pendiente',
+            'terminado' => 'terminado',
+            'cancelado' => 'cancelado',
+            'error' => 'error',
+
+            // Mapeo de "En tránsito" -> "En proceso"
+            'en tránsito' => 'en_proceso',
+            'en transito' => 'en_proceso',
+            'transito' => 'en_proceso',
+            'tránsito' => 'en_proceso',
             'en proceso' => 'en_proceso',
+            'en_proceso' => 'en_proceso',
             'enproceso' => 'en_proceso',
             'proceso' => 'en_proceso',
-            'terminado' => 'terminado',
+            'enviado' => 'en_proceso',
+            'despachado' => 'en_proceso',
+            'ruta' => 'en_proceso',
+            'en ruta' => 'en_proceso',
+
+            // Mapeo de "Entregado" -> "Terminado"
             'entregado' => 'terminado',
+            'entregada' => 'terminado',
             'finalizado' => 'terminado',
-            'pendiente' => 'pendiente',
-            'error' => 'error',
+            'completado' => 'terminado',
+            'exitoso' => 'terminado',
+            'recibido' => 'terminado',
+
+            // Mapeo de Errores
             'fallido' => 'error',
-            'cancelado' => 'cancelado'
+            'fallo' => 'error',
+            'no entregado' => 'error',
+            'devuelto' => 'error',
+            'devolucion' => 'error',
+            'rechazado' => 'error',
+
+            // Mapeo de Cancelados -> "Cancelado"
+            'anulado' => 'cancelado',
+            'cancelada' => 'cancelado',
+            'suspendido' => 'cancelado'
         ];
 
-        return $mapeo[$estado] ?? 'pendiente';
+        $estadoMapeado = $mapeo[$estado] ?? 'pendiente';
+
+        Log::info("Normalizando estado: '$estado' → '$estadoMapeado'");
+
+        return $estadoMapeado;
     }
 
     private function procesarFecha($fecha)
@@ -445,23 +485,6 @@ class GuiaExcelController extends Controller
             return Carbon::parse($fecha);
         } catch (\Exception $e) {
                 return null;
-        }
-    }
-
-    private function simularSincronizacionAPI($numeroGuia)
-    {
-        // Simular llamada a API externa
-        $estados = ['en_proceso', 'terminado', 'error'];
-        $probabilidades = [60, 30, 10]; // Probabilidades en porcentaje
-
-        $random = rand(1, 100);
-
-        if ($random <= $probabilidades[2]) {
-            return 'error';
-        } elseif ($random <= $probabilidades[2] + $probabilidades[1]) {
-            return 'terminado';
-        } else {
-            return 'en_proceso';
         }
     }
 }
