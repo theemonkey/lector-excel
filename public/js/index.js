@@ -206,7 +206,7 @@ $(document).ready(function () {
                     // Mostrar información de sincronización
                     const info = response.data;
                     showNotification(`Guía ${numeroGuia}: ${info.estado_actual.toUpperCase()} |
-                    última sincronización: ${info.fecha_ultima_sincronizacion} |
+                    última sincronización: ${info.fecha_ultima_sincronización} |
                     ${info.info}`,
                         info.puede_progresar ? 'info' : 'warning'
                     );
@@ -257,7 +257,7 @@ $(document).ready(function () {
                 if (response.success) {
                     const stats = response.data.estadisticas;
                     const mensaje = `REPORTE DE ESTADO:
-                        Pendientes: ${stats.pendientes} | En Proceso: ${stats.en_proceso} | 
+                        Pendientes: ${stats.pendientes} | En Proceso: ${stats.en_proceso} |
                         Terminadas: ${stats.terminadas} | Con Error: ${stats.con_error} |
                         Sincronizadas hoy: ${response.data.sincronizadas_hoy}`;
 
@@ -273,7 +273,6 @@ $(document).ready(function () {
             },
             error: function (xhr, status, error) {
                 console.error('Error en sincronización masiva:', error);
-                console.error('Respuesta completa:', xhr.responseText);
                 showNotification('Error al generar reporte.', 'error');
             },
             complete: function () {
@@ -337,22 +336,6 @@ $(document).ready(function () {
     }
 
     /* =================================================================================================== */
-    // Recargar datos de la tabla desde el backend
-    function reloadTableData() {
-        $.ajax({
-            url: '/guias',
-            type: 'GET',
-            success: function (response) {
-                if (response.success) {
-                    displayGuiasInTable(response.data);
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error('Error recargando datos:', error);
-            }
-        });
-    }
-
     // Estados
     function formatEstadoBadge(estado) {
         const badgeClasses = {
@@ -494,13 +477,6 @@ $(document).ready(function () {
         }
     }
 
-    // Función para resetear filtros cuando se carga nueva data
-    function resetFilters() {
-        $('.estado-filter').prop('checked', false);
-        activeFilters = [];
-        updateFilterLabel();
-    }
-
     // Función personalizada de filtro para DataTables
     $.fn.dataTable.ext.search.push(function (settings, data, dataIndex) {
         // Solo aplicar este filtro a nuestra tabla específica
@@ -530,17 +506,5 @@ $(document).ready(function () {
         setTimeout(function () {
             initializeDropdownFilter();
         }, 500);
-    });
-
-    // Test de conectividad al backend
-    $.ajax({
-        url: '/guias',
-        type: 'GET',
-        success: function (response) {
-            console.log('Backend conectado:', response);
-        },
-        error: function (xhr, status, error) {
-            console.error('Error conectando backend:', xhr.status, xhr.responseText);
-        }
     });
 });

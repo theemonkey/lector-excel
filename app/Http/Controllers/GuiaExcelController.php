@@ -222,6 +222,69 @@ class GuiaExcelController extends Controller
             ], 500);
         }
     }
+    /*================================================================================================= */
+    // Detecta si hubo cambios críticos que requieran sincronización
+    private function detectarCambiosEnGuia($guiaExistente, $datosExcel)
+    {
+        // 1. Cambio de estado
+        if ($guiaExistente->estado !== $datosExcel['estado']) {
+            Log::info("Cambio de estado detectado: {$guiaExistente->estado} → {$datosExcel['estado']}");
+            return true;
+        }
+
+        // 2. Cambio en fecha de consulta (índica actividad reciente en la guía)
+        if ($datosExcel['fecha_consulta']) {
+            $fechaExistente = $guiaExistente->fecha_consulta ? $guiaExistente->fecha_consulta->format('Y-m-d H:i:s') : null;
+            $fechaNueva = $datosExcel['fecha_consulta']->format('Y-m-d H:i:s');
+
+            if ($fechaExistente !== $fechaNueva) {
+                Log::info("Cambio en fecha de consulta detectado: $fechaExistente → $fechaNueva");
+                return true;
+            }
+        }
+
+        // 3. Progreso de estado (pendiente -> en_proceso -> terminado)
+        if ($this->esProgresoDeEstado($guiaExistente->estado, $datosExcel['estado'])) {
+            Log::info("Progreso de estado detectado: {$guiaExistente->estado} → {$datosExcel['estado']}");
+            return true;
+        }
+
+        return false;
+    }
+    /*================================================================================================= */
+    // Verifica si el cambio de estado representa un progreso lógico
+    private function esProgresoDeEstado($estadoAnterior, $estadoNuevo)
+    {
+        $progresosValidos = [
+            'pendiente' => ['en_proceso', 'terminado', 'error', 'cancelado'],
+            'en_proceso' => ['terminado', 'error', 'cancelado']
+        ];
+
+        return isset($progresosValidos[$estadoAnterior]) &&
+            in_array($estadoNuevo, $progresosValidos[$estadoAnterior]);
+    }
+
+    // Actualiza guía y registra la sincronización
+    private function actualizarGuiaConSincronizacion($guia, $datosExcel)
+    {
+        $estadoAnterior = $guia->estado;
+
+        // Actualizar fecha de sincronizacion cuando hay cambios críticos
+        $datosExcel['fecha_ultima_sincronización'] = now();
+
+        // Registrar sincronización si hubo cambio de estado
+        if ($estadoAnterior !== $datosExcel['estado']) {
+            $datosExcel['observaciones'] = "sincronización automática desde Excel: {$estadoAnterior} → {$datosExcel['estado']}";
+
+            Log::info("Sincronizando guía {$guia->numero_guia}: {$estadoAnterior} → {$datosExcel['estado']}");
+        } else {
+            $datosExcel['observaciones'] = "sincronización automática - datos actualizados";
+
+            Log::info("Sincronizando guía {$guia->numero_guia}: datos actualizados");
+        }
+
+        $guia->update($datosExcel);
+    }
 
     // Busca encabezados de manera inteligente en toda la hoja
     // Si se requiere agregar más palabras clave, se pueden añadir al array $palabrasClaveGuia
@@ -361,8 +424,8 @@ class GuiaExcelController extends Controller
                     'id' => $guia->id,
                     'numero_guia' => $guia->numero_guia,
                     'estado_actual' => $guia->estado,
-                    'fecha_ultima_sincronizacion' => $guia->fecha_ultima_sincronizacion ?
-                        $guia->fecha_ultima_sincronizacion->format('d-m-Y H:i') : 'Nunca',
+                    'fecha_ultima_sincronización' => $guia->fecha_ultima_sincronización ?
+                        $guia->fecha_ultima_sincronización->format('d-m-Y H:i') : 'Nunca',
                     'ultimo_cambio' => $ultimoCambio,
                     'puede_progresar' => $puedeProgresar,
                     'info' => $puedeProgresar ?
@@ -393,14 +456,34 @@ class GuiaExcelController extends Controller
                 'total' => Guia_excel::count()
             ];
 
-            $guiasSincronizadasHoy = Guia_excel::whereDate('fecha_ultima_sincronizacion', today())->count();
+            $guiasSincronizadasHoy = Guia_excel::whereDate('fecha_ultima_sincronización', today())->count();
+
+            //ERROR si no hay guías
+            if ($estadisticas['total'] === 0) {
+                return response()->json([
+                    'success' => true,
+                    'message' => 'No hay guías en el sistema',
+                    'data' => [
+                        'estadisticas' => $estadisticas,
+                        'sincronizadas_hoy' => 0,
+                        'guias_actualizadas' => [],
+                        'info' => 'Sube un archivo Excel para comenzar'
+                    ]
+                ]);
+            }
 
             // Obtener todas las guías actualizadas
             $todasLasGuias = Guia_excel::orderBy('created_at', 'desc')
                 ->get()
                 ->map(function ($guia) {
+                try {
                     return $this->formatGuiaParaFrontend($guia);
-                });
+                    } catch (\Exception $e) {
+                        \Log::error("Error formateando guía {$guia->id}: " . $e->getMessage());
+                        return null;
+                    }
+                })
+                ->filter(); // Eliminar nulls
 
             return response()->json([
                 'success' => true,
@@ -413,10 +496,10 @@ class GuiaExcelController extends Controller
                 ]
             ]);
         } catch (\Exception $e) {
-            Log::error('Error generando reporte: ' . $e->getMessage());
+            Log::error('ERROR GENERANDO REPORTE: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Error al generar reporte'
+                'message' => 'Error interno del servidor: ' . $e->getMessage()
             ], 500);
         }
     }

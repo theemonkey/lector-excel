@@ -25,7 +25,7 @@ class Guia_excel extends Model
         'direccion',
         'estado',
         'fecha_consulta',
-        'fecha_ultima_sincronizacion',
+        'fecha_ultima_sincronización',
         'historial_estados',
         'observaciones',
         'archivo_origen'
@@ -33,7 +33,7 @@ class Guia_excel extends Model
 
     protected $casts = [
         'fecha_consulta' => 'datetime',
-        'fecha_ultima_sincronizacion' => 'datetime',
+        'fecha_ultima_sincronización' => 'datetime',
         'historial_estados' => 'array'
     ];
 
@@ -101,7 +101,7 @@ class Guia_excel extends Model
         // Solo se pueden sincronizar guías en estado 'pendiente' o 'en_proceso'
         return in_array($this->estado, ['pendiente', 'en_proceso']);
     }
-
+    /*======================================================================================== */
     // Método para obtener siguiente estado lógico
     public function obtenerSiguienteEstado()
     {
@@ -119,12 +119,12 @@ class Guia_excel extends Model
                 return [$this->estado];
         }
     }
-
+    /* =================================================================================== */
     public function marcarComoSincronizada($nuevoEstado, $observaciones = null)
     {
         $this->update([
             'estado' => $nuevoEstado,
-            'fecha_ultima_sincronizacion' => now(),
+            'fecha_ultima_sincronización' => now(),
             'fecha_consulta' => now(),
             'observaciones' => $observaciones
         ]);
@@ -132,7 +132,18 @@ class Guia_excel extends Model
 
     public function obtenerUltimoCambioEstado()
     {
-        $historial = $this->historial_estados ?? [];
-        return $historial ? end($historial) : null;
+        if (!$this->historial_estados || empty($this->historial_estados)) {
+            return null;
+        }
+
+        $historial = $this->historial_estados;
+        $ultimoCambio = end($historial);
+
+        return [
+            'fecha' => $ultimoCambio['fecha'] ?? null,
+            'estado_anterior' => $ultimoCambio['estado_anterior'] ?? null,
+            'estado_nuevo' => $ultimoCambio['estado_nuevo'] ?? $this->estado,
+            'accion' => $ultimoCambio['accion'] ?? 'cambio_estado'
+        ];
     }
 }
