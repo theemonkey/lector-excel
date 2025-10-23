@@ -3,11 +3,6 @@
 use App\Http\Controllers\GuiaExcelController;
 use Illuminate\Support\Facades\Route;
 
-// Página principal ( index)
-
-/*Route::get('/', function () {
-    return view('index');
-});*/
 
 Route::get('/', [GuiaExcelController::class, 'index'])->name('index');
 
@@ -16,4 +11,7 @@ Route::prefix('guias')->group(function () {
     Route::post('/procesar-excel', [GuiaExcelController::class, 'procesarExcel']);
     Route::post('/{id}/sincronizar', [GuiaExcelController::class, 'sincronizarGuia']);
     Route::post('/sincronizar-masiva', [GuiaExcelController::class, 'sincronizarMasiva']);
+
+    // Ruta para eliminar guía individual
+    Route::delete('/{id}', [GuiaExcelController::class, 'destroy'])->name('guias.destroy');
 });

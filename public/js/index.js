@@ -183,7 +183,14 @@ $(document).ready(function () {
             data-numero="${numeroGuia}"
             title="Sincronizar guía ${numeroGuia}">
                 <i class="fas fa-sync-alt"></i>
-            </button>`;
+            </button>
+            <button class="btn btn-sm btn-danger delete-guide-btn"
+                data-id="${guiaId}"
+                data-numero="${numeroGuia}"
+                title="Eliminar guía ${numeroGuia}">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>`;
     }
 
     // ======>>> Sincronización individual conectada al backend <<<======
@@ -362,32 +369,27 @@ $(document).ready(function () {
     }
 
     /* =================================================================================================== */
-    // Función para mostrar notificaciones luego de la sincronizacion(masiva-individual)
-    function showNotification(message, type = 'info') {
+    // Función para mostrar notificaciones GENERALES
+    function showNotification(message, type = 'info', timer = 3000) {
         console.log(`Notificación (${type}): ${message}`);
 
-        // Mapear tipos a clases de Bootstrap
+        // Mapear y mostrar notificaciones con SweetAlert
         const typeClassMap = {
-            'info': 'alert-info',
-            'success': 'alert-success',
-            'warning': 'alert-warning',
-            'error': 'alert-danger'
+            'info': 'info',
+            'success': 'success',
+            'warning': 'warning',
+            'error': 'error'
         };
 
-        const alertClass = typeClassMap[type] || 'alert-info';
-
-        // Crear y mostrar la alerta
-        const notification = $(`<div class="alert ${alertClass} alert-dismissible fade show position-fixed"
-            style="top: 20px; right: 20px; z-index: 9999; min-width: 300px; max-width: 500px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); ">
-            <strong>${type === 'error' ? 'Error:' : type === 'success' ? '' : 'Info:'}</strong> ${message}
-        </div>`);
-
-        $('body').append(notification);
-
-        // Desaparecer después de 3 segundos
-        setTimeout(() => {
-            notification.fadeOut(500, () => notification.remove());
-        }, 3000);
+        Swal.fire({
+            text: message,
+            icon: typeClassMap[type] || 'info',
+            timer: timer,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end',
+            timerProgressBar: true
+        });
     }
 
     /* =================================================================================================== */
@@ -507,4 +509,91 @@ $(document).ready(function () {
             initializeDropdownFilter();
         }, 500);
     });
+    /* ============================================================================================= */
+    // ======>>> Eliminación individual de guias cargadas en la tabla <<<======
+    $(document).on('click', '.delete-guide-btn', function () {
+        const button = $(this);
+        const guiaId = button.data('id');
+        const numeroGuia = button.data('numero');
+
+        // Confirmación eliminado usando SweetAlert2
+        Swal.fire({
+            title: '¿Eliminar guía?',
+            text: `Guía: ${numeroGuia}`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Eliminar',
+            cancelButtonText: 'Cancelar',
+            buttonsStyling: true
+        }).then((result) => {
+            if (result.isConfirmed) {
+                // Proceder con eliminación
+                deleteGuideFromBackend(button, guiaId, numeroGuia);
+            }
+        });
+    });
+
+    // Función para eliminar guía
+    function deleteGuideFromBackend(button, guiaId, numeroGuia) {
+        // Mostrar loading sutil en el botón
+        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
+
+        $.ajax({
+            url: `/guias/${guiaId}`,
+            type: 'DELETE',
+            headers: {
+                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
+            },
+            success: function (response) {
+                if (response.success) {
+                    // Obtener la fila y eliminarla de DataTable
+                    const row = button.closest('tr');
+                    guidesDataTable.row(row).remove().draw();
+
+                    //NOTIFICACIÓN SUTIL DE ÉXITO
+                    Swal.fire({
+                        title: '¡Eliminada!',
+                        text: `Guía ${numeroGuia} eliminada`,
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false,
+                        toast: true,
+                        position: 'top-end'
+                    });
+
+                    console.log(`Guía ${numeroGuia} eliminada correctamente`);
+                } else {
+                    // Error del servidor
+                    Swal.fire({
+                        title: 'Error',
+                        text: response.message || 'No se pudo eliminar la guía',
+                        icon: 'error',
+                        confirmButtonText: 'Entendido'
+                    });
+
+                    // Restaurar botón
+                    button.prop('disabled', false).html('<i class="fas fa-trash"></i>');
+                }
+            },
+            error: function (xhr, status, error) {
+                console.error('Error eliminando guía:', error);
+
+                //ERROR SUTIL
+                Swal.fire({
+                    title: 'Error de conexión',
+                    text: `No se pudo eliminar la guía ${numeroGuia}`,
+                    icon: 'error',
+                    confirmButtonText: 'Entendido'
+                });
+
+                // Restaurar botón
+                button.prop('disabled', false).html('<i class="fas fa-trash"></i>');
+            }
+        });
+    }
+
+
 });
+

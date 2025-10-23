@@ -21,6 +21,9 @@
         <!-- Aquí se carga CSS específico de cada vista -->
         <link rel="stylesheet" href="{{ asset('css/index.css') }}">
 
+        <!-- SweetAlert2 -->
+        <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
 
         @stack('styles')
     </head>

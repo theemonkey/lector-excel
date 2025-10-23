@@ -503,6 +503,38 @@ class GuiaExcelController extends Controller
             ], 500);
         }
     }
+    /* ================================================================================================= */
+    // Eliminar una guía específica
+    public function destroy($id)
+    {
+        try {
+            $guia = Guia_excel::findOrFail($id);
+            $numeroGuia = $guia->numero_guia;
+
+            $guia->delete();
+
+            \Log::info("Guía eliminada: {$numeroGuia} (ID: {$id})");
+
+            return response()->json([
+                'success' => true,
+                'message' => "Guía {$numeroGuia} eliminada correctamente"
+            ]);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            \Log::warning("Intento de eliminar guía inexistente ID: {$id}");
+
+            return response()->json([
+                'success' => false,
+                'message' => 'La guía no existe o ya fue eliminada'
+            ], 404);
+        } catch (\Exception $e) {
+            \Log::error("Error eliminando guía ID {$id}: " . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error interno del servidor'
+            ], 500);
+        }
+    }
 
     /* ================================================================================================= */
     // Métodos auxiliares privados para definir palabras segun estados del excel
