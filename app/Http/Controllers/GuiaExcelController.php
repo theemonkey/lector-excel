@@ -536,6 +536,49 @@ class GuiaExcelController extends Controller
         }
     }
 
+    /* ====================================================================================================== */
+    // Eliminar múltiples guías
+    public function destroyMultiple(Request $request)
+    {
+        $validator = \Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:guias_excel,id'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'IDs de guías inválidos',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $ids = $request->ids;
+
+            // Numeros de guia para el log
+            $guias = Guia_excel::whereIn('id', $ids)->pluck('numero_guia')->toArray();
+
+            // Eliminar guías
+            $deleted = Guia_excel::whereIn('id', $ids)->delete();
+
+            \Log::info("Guías eliminadas (múltiple): " . implode(',', $guias));
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$deleted} guía(s) eliminada(s) correctamente",
+                'deleted_count' => $deleted
+            ]);
+        } catch (\Exception $e) {
+            \Log::error("Error eliminando múltiples guías: " . $e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al eliminar las guías seleccionadas'
+            ], 500);
+        }
+    }
+
     /* ================================================================================================= */
     // Métodos auxiliares privados para definir palabras segun estados del excel
     private function normalizarEstado($estado)

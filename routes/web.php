@@ -14,4 +14,7 @@ Route::prefix('guias')->group(function () {
 
     // Ruta para eliminar guía individual
     Route::delete('/{id}', [GuiaExcelController::class, 'destroy'])->name('guias.destroy');
+
+    // Ruta para eliminación múltiple de guías
+    Route::delete('/', [GuiaExcelController::class, 'destroyMultiple'])->name('guias.destroyMultiple');
 });

@@ -1,5 +1,6 @@
 $(document).ready(function () {
     let guidesDataTable; // Variable global para la DataTable
+    let selectedGuideIds = new Set(); // Conjunto para almacenar IDs de guías seleccionadas
 
     // Inicializar DataTable
     guidesDataTable = $('#guidesTable').DataTable({
@@ -28,11 +29,7 @@ $(document).ready(function () {
             }
         ],
         "createdRow": function (row, data, dataIndex) {
-            // Deshabilitar botón de sincronizar si el estado es "Terminado"
-            const estadosDisabled = ['terminado', 'error'];
-            if (estadosDisabled.includes(data.estado.toLowerCase())) {
-                $(row).find('.sync-guide-btn').prop('disabled', true).attr('title', 'Guía terminada o con error, no se puede sincronizar.');
-            }
+            // Solo crear filas normalmente
         }
     });
 
@@ -175,62 +172,43 @@ $(document).ready(function () {
         console.log("Tabla actualizada manteniendo paginación");
     }
 
-    // Crear botón de acción con ID de la base de datos
+    // Crear botón de acción(DELETE) con ID de la base de datos
     function createActionButton(guiaId, numeroGuia) {
         return `
-            <button class="btn btn-sm btn-primary sync-guide-btn"
-            data-id="${guiaId}"
-            data-numero="${numeroGuia}"
-            title="Sincronizar guía ${numeroGuia}">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-            <button class="btn btn-sm btn-danger delete-guide-btn"
-                data-id="${guiaId}"
-                data-numero="${numeroGuia}"
-                title="Eliminar guía ${numeroGuia}">
-                <i class="fas fa-trash"></i>
-            </button>
+            <div class="d-flex align-items-center">
+                <input type="checkbox" class="form-check-input me-2 select-guide-checkbox" data-id="${guiaId}" title="Seleccionar guía ${numeroGuia}">
+                    <button class="btn btn-sm btn-danger delete-guide-btn"
+                        data-id="${guiaId}"
+                        data-numero="${numeroGuia}"
+                        title="Eliminar guía ${numeroGuia}">
+                        <i class="fas fa-trash"></i>
+                    </button>
         </div>`;
     }
 
-    // ======>>> Sincronización individual conectada al backend <<<======
-    $(document).on('click', '.sync-guide-btn', function () {
-        const button = $(this);
-        const guiaId = button.data('id');
-        const numeroGuia = button.data('numero');
+    // Actualizar  UI del botón eliminar seleccionadas (checkbox eliminacion múltiple)
+    function updateDeleteSelectedUI() {
+        const btn = $('#deleteSelectedBtn');
+        const count = selectedGuideIds.size;
+        if (count > 0) {
+            btn.show().attr('title', `Eliminar ${count} guía(s) seleccionada(s)`).html(`<i class="fas fa-trash"></i> <small>${count}</small>`);
+        } else {
+            btn.hide().html(`<i class="fas fa-trash"></i>`);
+        }
+    }
 
-        // Deshabilitar botón durante sincronización
-        button.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i>');
-
-        $.ajax({
-            url: `/guias/${guiaId}/sincronizar`,
-            type: 'POST',
-            headers: {
-                'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content')
-            },
-            success: function (response) {
-                if (response.success) {
-                    // Mostrar información de sincronización
-                    const info = response.data;
-                    showNotification(`Guía ${numeroGuia}: ${info.estado_actual.toUpperCase()} |
-                    última sincronización: ${info.fecha_ultima_sincronización} |
-                    ${info.info}`,
-                        info.puede_progresar ? 'info' : 'warning'
-                    );
-                } else {
-                    showNotification('Error: ' + response.message, 'error');
-                }
-            },
-            error: function (xhr, status, error) {
-                console.error('Error sincronizando guía:', error);
-                showNotification(`Error al sincronizar guía ${numeroGuia}`, 'error');
-            },
-            complete: function () {
-                // Restaurar el botón
-                button.prop('disabled', false).html('<i class="fas fa-sync-alt"></i>');
-            }
-        });
+    // Manejo de selección individual (checkbox en acciones)
+    $(document).on('change', '.select-guide-checkbox', function () {
+        const id = $(this).data('id');
+        if ($(this).is(':checked')) {
+            selectedGuideIds.add(parseInt(id));
+        } else {
+            selectedGuideIds.delete(parseInt(id));
+        }
+        updateDeleteSelectedUI();
     });
+
+    /* ========================================================================================================= */
     /* ========= */
     // =====>>> Sincronización masiva conectada al backend <<<<=====
     // Sincronización masiva conectada al backend
@@ -552,6 +530,9 @@ $(document).ready(function () {
                     const row = button.closest('tr');
                     guidesDataTable.row(row).remove().draw();
 
+                    selectedGuideIds.delete(parseInt(guiaId));
+                    updateDeleteSelectedUI();   // Eliminación múltiple
+
                     //NOTIFICACIÓN SUTIL DE ÉXITO
                     Swal.fire({
                         title: '¡Eliminada!',
@@ -593,7 +574,91 @@ $(document).ready(function () {
             }
         });
     }
+    /* ========================================================================================================= */
+    // ======>>> Eliminación múltiple de guias seleccionadas en la tabla mediante checkbox <<<======
+    $(document).on('click', '#deleteSelectedBtn', function () {
+        const ids = Array.from(selectedGuideIds);
+        if (ids.length === 0) return;
 
+        Swal.fire({
+            title: `Eliminar ${ids.length} guía(s)?`,
+            text: `Se eliminarán ${ids.length} guía(s) de la tabla y del servidor.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc3545',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: 'Eliminar',
+            cancelButtonText: 'Cancelar'
+        }).then((result) => {
+            if (!result.isConfirmed) return;
 
+            // Mostrar toast de proceso
+            Swal.fire({
+                title: 'Eliminando...',
+                text: 'Por favor, espera un momento.',
+                icon: 'info',
+                timer: 3000,
+                allowOutsideClick: false,
+                showConfirmButton: false,
+                didOpen: () => Swal.showLoading()
+            });
+
+            // Petición al backend para eliminar las guías seleccionadas
+            $.ajax({
+                url: '/guias',
+                type: 'DELETE',
+                headers: { 'X-CSRF-TOKEN': $('meta[name="csrf-token"]').attr('content') },
+                data: { ids: ids },
+                success: function (response) {
+                    //esperar 2 segundos
+                    setTimeout(() => {
+                        Swal.close(); // Cerrar después del delay
+
+                        if (response.success) {
+                            // Eliminar las filas de la tabla
+                            ids.forEach(id => {
+                                const checkbox = $(`.select-guide-checkbox[data-id="${id}"]`);
+                                const row = checkbox.closest('tr');
+                                guidesDataTable.row(row).remove();
+                            });
+                            guidesDataTable.draw();
+                            selectedGuideIds.clear();
+                            updateDeleteSelectedUI();
+
+                            //notificación toast de éxito después del delay
+                            Swal.fire({
+                                text: response.message || `${ids.length} guía(s) eliminada(s)`,
+                                icon: 'success',
+                                toast: true,
+                                position: 'top-end',
+                                timer: 2000,
+                                showConfirmButton: false,
+                                //timerProgressBar: true
+                            });
+                        } else {
+                            Swal.fire({
+                                title: 'Error',
+                                text: response.message || 'No se pudo eliminar la(s) guía(s)',
+                                icon: 'error'
+                            });
+                        }
+                    }, 2000); //delay 2 segundos
+                },
+                error: function (xhr) {
+                    setTimeout(() => {
+                        Swal.close();
+                        console.error('Error eliminando seleccionadas:', xhr.responseText);
+                        Swal.fire({
+                            title: 'Error de conexión',
+                            text: 'No se pudo eliminar la(s) guía(s)',
+                            icon: 'error'
+                        });
+                    }, 2000);
+                }
+            });
+        });
+    });
 });
+
+
 

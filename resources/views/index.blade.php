@@ -97,7 +97,14 @@
                                 </div>
                             </th>
                             <th>Fecha Consulta</th>
-                            <th>Acciones</th>
+                            <th class="text-start">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    Acciones
+                                    <button id="deleteSelectedBtn" class="btn btn-xs btn-danger" style="display:none; font-size: 0.75rem; padding: 2px 6px; " title="Eliminar seleccionados">
+                                        <i class="fas fa-trash" style="font-size: 0.7rem;"></i>
+                                    </button>
+                                </div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
